@@ -62,7 +62,7 @@ for i, test_date in enumerate(sampled_dates):
     else: 
         print(test_date)
 
-        training_data = meter_data[meter_data["date"]<test_date]
+        training_data = meter_data[meter_data["date"]<=test_date]
         test_data = meter_data_15[meter_data_15["date"]== test_date]
 
 #        training_data = training_data.sort_index(ascending = True)
@@ -79,11 +79,11 @@ for i, test_date in enumerate(sampled_dates):
             index = np.arange(test_data.shape[0])
             plt.title(algo_name)
             plt.plot(index, prediction[[algo_name]], label="Energy Prediction")
-         #   plt.plot(index, meter_data_15[["House Consumption"]][-future_window:], label="Ground Truth")
+            plt.plot(index, meter_data_15[["House Consumption"]][-future_window:], label="Ground Truth")
             plt.xlabel('Predictive horizon (Minutes)')
             plt.ylabel(r'KWh')
             plt.legend()
-            plt.savefig(algo_name+'1.png')
+            plt.savefig(algo_name+'.png')
 
 print("---------error----------")
 print(error)

@@ -86,6 +86,22 @@ def is_workday(hour):
     else:
         return 0
 
+def is_holiday(day):
+    holidays = pd.DatetimeIndex(['2016-11-11'])
+    for d in ('2016-11-11', '2016-11-24', '2016-11-25', '2016-12-23', '2016-12-26', '2016-12-30', '2017-01-16', '2017-02-20', 
+              '2017-02-20', '2017-03-27', '2017-03-28', '2017-03-29', '2017-03-30', '2017-03-31', '2017-07-04', '2017-09-04',
+              '2017-11-10', '2017-11-23', '2017-11-24', '2017-12-22', '2017-12-25', '2017-12-29', '2018-01-01', '2018-01-15',
+              '2018-02-19', '2018-03-26', '2018-03-27', '2018-03-28', '2018-03-30', '2018-03-30', '2018-04-28', '2018-07-04',
+              '2018-09-03'
+             ):
+         holidays = holidays.append(pd.DatetimeIndex([d]))
+    
+    dateOnly = pd.DataFrame(pd.DatetimeIndex((data.index).date))
+
+    data['Holiday'] = pd.DatetimeIndex(dateOnly[0]).isin(holidays)
+    data['Holiday'] = data['Holiday'].replace({ True : 1, False : 0 })
+    
+
 class IEC_nn(object):
     """The Intelligent Energy Component of a house.
     IEC will use several methods to predict the energy consumption of a house
@@ -140,23 +156,33 @@ class IEC_nn(object):
       data["is_summer"]= [is_Summer(x.month) for x in data["X"]]
       data["is_autumn"]= [is_Autumn(x.month) for x in data["X"]]
       data["is_winter"]= [is_Winter(x.month) for x in data["X"]]
+      ## need to add holiday
       data = data.resample("15T", on="X").mean()
       data.dropna(inplace=True)
 
-      data = data[data["s0"]<.2]
-      data = data[data["s1"]<.2]
-      data = data[data["s2"]<.2]
-      data = data[data["s3"]<.2]
-      data = data[data["s4"]<.2]
-      data = data[data["s5"]<.2]
-      data = data[data["s6"]<.2]
-      data = data[data["s7"]<.2]
-      data = data[data["s8"]<.2]
-      data = data[data["s9"]<.2]
-      data = data[data["s10"]<.2]
-      data = data[data["s11"]<.2]
-      data = data[data["s12"]<.2]
-      data = data[data["s13"]<.2]
+
+
+      data.ix[data["s0"]>.2, "y"] = np.nan
+      data.ix[data["s1"]>.2, "y"] = np.nan
+      data.ix[data["s2"]>.2, "y"] = np.nan
+      data.ix[data["s3"]>.2, "y"] = np.nan
+      data.ix[data["s4"]>.2, "y"] = np.nan
+      data.ix[data["s5"]>.2, "y"] = np.nan
+      data.ix[data["s6"]>.2, "y"] = np.nan
+      data.ix[data["s7"]>.2, "y"] = np.nan
+      data.ix[data["s8"]>.2, "y"] = np.nan
+      data.ix[data["s9"]>.2, "y"] = np.nan
+      data.ix[data["s10"]>.2, "y"] = np.nan
+      data.ix[data["s11"]>.2, "y"] = np.nan
+      data.ix[data["s12"]>.2, "y"] = np.nan
+      data.ix[data["s13"]>.2, "y"] = np.nan
+
+      data.ix[data["y"].isna(), "interpolated"]=1
+      data.ix[data["interpolated"].isna(), "interpolated"]=0
+
+      data["y"].interpolate(method = "piecewise_polynomial", inplace=True)
+      data.dropna(inplace=True)
+
 
       data["X"] = data.index
       data["X"] = scalerX.fit_transform(data["X"].reshape(-1,1))
@@ -168,15 +194,15 @@ class IEC_nn(object):
       ### TODO 3/05: combine S's, X, Y, feature vectors into one dataframe
 
       Ys_supervised = timeseries_to_supervised(data[["y"]], lag=lag, steps = steps, prefix = "y")
-      data.drop("y", axis = 1)
-
+      data.drop("y", axis = 1, inplace = True)
+      data.drop(["s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "s12", "s13"], axis = 1, inplace = True)
       data_supervised = timeseries_to_supervised(data, lag = lag, steps = 0)
       combined_data = pd.concat([data_supervised, Ys_supervised], axis= 1)
       combined_data.dropna(inplace= True)
+
       combined_data_values = combined_data.values
 
-      # what is happening here with this X -- why isn't time included? 
-      n_test_hours = self.prediction_window
+      n_test_hours = 1 # self.prediction_window 
       n_train_hours = len(combined_data_values) - n_test_hours
       n_val_hours = n_train_hours+20
 
@@ -190,14 +216,14 @@ class IEC_nn(object):
       test_X = test[:,:-steps]
       val_X, val_y = val[:, :-steps], val[:, -steps:]
 
-      features=23
+      features=9
 
       train_X = train_X.reshape((train_X.shape[0], lag, features)) #### TODO: Akaash can you comment? 
       test_X = test_X.reshape((test_X.shape[0], lag, features))
       val_X = val_X.reshape((val_X.shape[0], lag, features))
 
       batch_size = 72
-      epochs=1001
+      epochs=15
       layers = 5
 
       if not nn_file:
@@ -244,111 +270,18 @@ class IEC_nn(object):
       yhat = model.predict(test_X)
 
 
+      # test_X_New = test_X.reshape((test_X.shape[0], lag*features))
 
-      test_X_New = test_X.reshape((test_X.shape[0], lag*features))
+      # df = pd.DataFrame()
 
-      df = pd.DataFrame()
+      # for i in range(yhat.shape[1]):
+      #     df['pred_energy_v'+str(i)] = scalerY.inverse_transform(np.concatenate(((yhat[:, i].reshape(yhat.shape[0],1))
+      #                                                                        , test_X_New[:, 1:features]), axis=1))[:,0].tolist()
+      
+      pred = scalerY.inverse_transform(yhat.reshape(-1,1))
+      IPython.embed()
 
-      for i in range(yhat.shape[1]):
-          df['pred_energy_v'+str(i)] = scalerY.inverse_transform(np.concatenate(((yhat[:, i].reshape(yhat.shape[0],1))
-                                                                             , test_X_New[:, 1:features]), axis=1))[:,0].tolist()
-      return df.values
-
-
-
-    def rnn_lstm(self, training_window=1440 * 60, k=7, recent_baseline_length=60, nn_file=False):
-
-        training_data = self.data.tail(training_window)
-        # observation_length is ALL of the current day (till now) + 4 hours
-        observation_length = mins_in_day(self.now) + 4 * 60
-
-        # IPython.embed()
-
-        training_df = (
-            training_data
-            .reset_index()
-            .rename(columns={'time':'X', 'House Consumption':'y'})
-        )
-
-        scaler = MinMaxScaler(feature_range=(0, 1))
-        X= training_df['X'].values.reshape(-1,1) # change this if training from energy_prediction
-
-        X = pd.DataFrame(X)
-        Y = pd.DataFrame(training_df['y'])
-
-        Xs = (X.fillna(value=0))
-        Ys = (Y.fillna(value=0)
-#                .pipe(lambda s: (s - s.mean())/s.std()) #### TODO: fix: is this normalization step correct? 
-      #          .loc[Xs.index]
-                .values.reshape((-1,1))
-        )
-        #Xs = Xs.values.reshape(-1,1)
-
-        Ys = scaler.fit_transform(Ys)
-
-        lag = 50
-
-        Ys_supervised = pd.DataFrame(timeseries_to_supervised(Ys, lag=lag, steps = 48).values)
-
-        # what is happening here with this X -- why isn't time included? 
-        X = Ys_supervised.take(range(0, lag), axis = 1)
-        Y = Ys_supervised.take([lag], axis = 1)
-
-        X = X.values.reshape(-1,lag)
-#        X["b_predictor"] = training_df["b_predictor"]
-        Y = Y.values.reshape(-1,1)
-        X = np.reshape(X, (X.shape[0], X.shape[1],1))
-   #     Y = np.reshape(Y, (Y.shape[0], 1, Y.shape[1]))
-
-        batch_size = 72
-        epochs=1
-        layers = 5
-
-        if not nn_file:
-            trained_nn_file = "orinda_no_bf_rnn_samples_"+ str(batch_size) +"_epochs_"+str(epochs)+"_lag_"+str(lag)+ "_layers_" + str(layers)+ ".json"
-            trained_nn_weights_file = "orinda_nn_samples_"+ str(batch_size)+"_epochs_"+ str(epochs)+"_lag_"+str(lag)+ "_layers_" + str(layers)+ ".h5"
-
-        if os.path.isfile(trained_nn_file):
-            json_file = open(trained_nn_file, 'r')
-            loaded_model_json = json_file.read()
-            model = model_from_json(loaded_model_json)
-            model.load_weights(trained_nn_weights_file)
-            print "Loaded NN model :: ", model
-
-        else:
-            print("training!")
-            # create and fit the LSTM network
-            # can try increasing the batch size 
-
-            model = Sequential()
-            model.add(LSTM(4, batch_input_shape=(batch_size, lag,1), stateful = True, return_sequences=True))
-            model.add(LSTM(4, batch_input_shape=(batch_size, lag,1), stateful = True, return_sequences=True))
-            model.add(LSTM(4, batch_input_shape=(batch_size, lag,1), stateful = True))
-            model.add(Dense(1))
-            model.compile(loss='mean_squared_error', optimizer='adam')
-
-            for i in range(2):
-                model.fit(X, Y, epochs=epochs, batch_size=batch_size, verbose=2, shuffle = False)
-                model.reset_states()
-
-            model_json= model.to_json()
-            with open(trained_nn_file, "w") as json_file:
-                json_file.write(model_json)
-            model.save_weights(trained_nn_weights_file)
-            print("saved trained net")
-
-        prediction_feeder = np.reshape(X[-batch_size:], (X[-batch_size:].shape[0], X[-batch_size:].shape[1],1))
-        current_prediction = model.predict(prediction_feeder, batch_size=batch_size)
-        # IPython.embed()
-        trainPredict = scaler.inverse_transform(current_prediction)[0]#current_prediction.shape[0]-1]
-
-        # is this prediction feeder doing the right thing? (need Anand's help)
-        for i in range(self.prediction_window-1):
-            prediction_feeder = np.append(prediction_feeder[:,1:lag], current_prediction).reshape(batch_size, lag,1)
-            current_prediction = model.predict(prediction_feeder, batch_size=batch_size)
-            trainPredict = np.append(trainPredict, scaler.inverse_transform(current_prediction)[0])#current_prediction.shape[0]-1])### maybe the opposite index!!!!
-
-        return trainPredict
+      return pred
 
     def predict(self, alg_keys):
 
